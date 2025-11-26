@@ -1,0 +1,144 @@
+:root {
+    --primary: #2c3e50;
+    --accent: #e74c3c;
+    --success: #27ae60;
+    --text: #333;
+    --bg: #f4f7f6;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--bg);
+    color: var(--text);
+    margin: 0;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Layout Utama */
+.container {
+    display: flex;
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    background: white;
+    box-shadow: 0 0 20px rgba(0,0,0,0.1);
+}
+
+/* Sidebar Info */
+.sidebar {
+    width: 350px;
+    padding: 2rem;
+    background-color: #fff;
+    border-right: 1px solid #e0e0e0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.level-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: bold;
+    color: white;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+}
+
+.diff-easy { background-color: #27ae60; }
+.diff-medium { background-color: #f39c12; }
+.diff-hard { background-color: #c0392b; }
+
+h1 { margin: 0 0 10px 0; color: var(--primary); }
+h2 { margin: 0 0 20px 0; font-size: 1.2rem; color: #7f8c8d; font-weight: normal; }
+
+.description-box {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+    border-left: 4px solid var(--accent);
+    margin-bottom: 20px;
+    line-height: 1.6;
+    font-size: 0.95rem;
+}
+
+.controls {
+    margin-top: auto;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+button {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.2s;
+    font-size: 0.9rem;
+}
+
+.btn-primary { background-color: var(--accent); color: white; }
+.btn-primary:hover { background-color: #c0392b; }
+
+.btn-outline { background-color: transparent; border: 2px solid #bdc3c7; color: #7f8c8d; }
+.btn-outline:hover { border-color: #95a5a6; color: #333; }
+
+.btn-next { 
+    background-color: var(--success); 
+    color: white; 
+    width: 100%; 
+    padding: 15px;
+    font-size: 1.1rem;
+    display: none; 
+}
+.btn-next:hover { background-color: #219150; }
+
+/* Area Game */
+.game-area {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #ecf0f1;
+    position: relative;
+}
+
+#sketch-holder {
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    border-radius: 8px;
+    overflow: hidden;
+    background: #ddd;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Reference Image (Clue) Style */
+.reference {
+    margin-top: 20px;
+    text-align: center;
+    width: 100%; 
+}
+
+.reference img {
+    width: 100%;
+    max-width: 300px;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    border-radius: 12px;
+    border: 4px solid #333;
+    object-fit: cover;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+}
+
+.reference p { 
+    font-size: 0.9rem; 
+    color: #666; 
+    margin-top: 8px; 
+    font-weight: bold; 
+}

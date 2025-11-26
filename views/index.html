@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="id">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Real Photo Puzzle Master</title>
+  <link rel="stylesheet" href="/views/style.css">
+  <!-- p5 libs CDN (or host locally in assets) -->
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.7.0/lib/p5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.7.0/lib/addons/p5.sound.min.js"></script>
+</head>
+
+<body>
+  <div class="container">
+    <div class="sidebar">
+      <span id="diffBadge" class="level-badge diff-easy">Mudah</span>
+      <h1 id="levelTitle">Level 1</h1>
+      <h2 id="puzzleName">Judul Puzzle</h2>
+      <div class="description-box">
+        <p id="puzzleDesc">Deskripsi...</p>
+        <p><strong>Grid:</strong> <span id="gridSize">3x3</span></p>
+        <p id="timer" style="color:#e74c3c;font-weight:bold;display:none;"></p>
+      </div>
+      <div class="reference">
+        <img id="refImg" src="https://via.placeholder.com/300" alt="Target" />
+        <p>Target Gambar (Clue)</p>
+      </div>
+      <div class="controls">
+        <button id="shuffleBtn">Acak Ulang</button>
+        <button id="solveBtn">Lihat Solusi</button>
+        <button id="nextLevelBtn" style="display:none;">Lanjut Level</button>
+      </div>
+    </div>
+    <div class="game-area">
+      <div id="sketch-holder"></div>
+    </div>
+  </div>
+
+  <!-- client code (served from /controllers) -->
+  <script src="/controllers/puzzle.js"></script>
+  <script src="/controllers/sketch.js"></script>
+  <script src="/controllers/ui.js"></script>
+</body>
+
+</html>
