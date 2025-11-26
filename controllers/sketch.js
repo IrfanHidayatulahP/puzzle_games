@@ -1,15 +1,14 @@
 /**
- * controllers/sketch.js — Robust & compatible version
- * - Single source of truth for globals used by puzzle.js
- * - Fetch /api/levels, load images (proxied if remote)
- * - Set refImg.src to same URL canvas uses (no mismatch)
- * - Provide fallback initTiles / handleTileClick if puzzle.js not present
+ * controllers/sketch.js — Unified model support
+ * - Detects tile storage model (mapping vs display-array)
+ * - shuffleTiles / swap / checkSolved work in either model
+ * - UI handlers call shuffleTiles() which is unified
  */
 
 const CANVAS_SIZE = 600;
 
-// Shared global state (only defined here)
-let img = null;             // alias expected by puzzle.js
+// Shared state
+let img = null;
 let tiles = [];
 let cols = 3;
 let rows = 3;
@@ -20,75 +19,18 @@ let tileH = 0;
 
 let levels = [];
 let currentLevelIdx = 0;
-
 let isLoading = true;
 
-// --- p5 preload (optional audio) ---
-function preload() {
-  // keep minimal so preload doesn't break if audio missing
-  try {
-    // loadSound('/assets/mixkit-game-level-music-689.wav'); // optional
-  } catch (e) {
-    // ignore
-  }
-}
-
-// --- setup ---
+// p5 hooks
+function preload() { }
 function setup() {
   const c = createCanvas(CANVAS_SIZE, CANVAS_SIZE);
   c.parent('sketch-holder');
-
-  // Wire UI safely
-  const shuffleBtn = document.getElementById('shuffleBtn');
-  if (shuffleBtn) shuffleBtn.addEventListener('click', () => {
-    if (!isLoading) {
-      if (typeof shuffleTiles === 'function') shuffleTiles();
-      else shuffleTilesLocal();
-    }
-  });
-
-  const solveBtn = document.getElementById('solveBtn');
-  if (solveBtn) solveBtn.addEventListener('click', () => {
-    if (!isLoading) return;
-    // cheat: put correct positions
-    tiles.forEach(t => t.currentIndex = t.correctIndex);
-    solved = true;
-    const nextBtn = document.getElementById('nextLevelBtn');
-    if (nextBtn) nextBtn.style.display = 'block';
-  });
-
-  const nextBtn = document.getElementById('nextLevelBtn');
-  if (nextBtn) {
-    nextBtn.addEventListener('click', () => loadLevel(currentLevelIdx + 1));
-    nextBtn.style.display = 'none';
-  }
-
-  // fetch levels then load first level
-  fetch('/api/levels')
-    .then(r => {
-      if (!r.ok) throw new Error('status ' + r.status);
-      return r.json();
-    })
-    .then(data => {
-      console.log('[levels] fetched', data);
-      levels = data;
-      if (!levels || levels.length === 0) {
-        console.warn('[levels] empty - using fallback single level');
-        levels = [{ level: 1, cols: 3, rows: 3, diff: 'Mudah', name: 'Fallback', desc: '', imageUrl: '/assets/ai-generated-8085814.jpg' }];
-      }
-      currentLevelIdx = 0;
-      loadLevel(currentLevelIdx);
-    })
-    .catch(err => {
-      console.error('[levels] fetch failed', err);
-      // fallback
-      levels = [{ level: 1, cols: 3, rows: 3, diff: 'Mudah', name: 'Fallback', desc: '', imageUrl: '/assets/ai-generated-8085814.jpg' }];
-      currentLevelIdx = 0;
-      loadLevel(currentLevelIdx);
-    });
+  tileW = Math.floor(width / cols);
+  tileH = Math.floor(height / rows);
+  attachUIHandlers(); // safe attach
+  fetchLevelsAndStart();
 }
-
-// --- draw ---
 function draw() {
   background(240);
 
@@ -101,170 +43,173 @@ function draw() {
     return;
   }
 
-  // render tiles in display order: tiles[i] is what's drawn at position i
-  for (let i = 0; i < tiles.length; i++) {
-    const t = tiles[i];
+  for (let i = 0; i < cols * rows; i++) {
+    const t = getTileForDisplay(i);
+    if (!t) continue;
     const destX = (i % cols) * tileW;
     const destY = Math.floor(i / cols) * tileH;
-
-    // Draw source rectangle from img to dest rectangle
     image(img, destX, destY, tileW, tileH, t.sx, t.sy, t.sW, t.sH);
-
-    // grid lines
-    stroke(255, 200);
-    strokeWeight(1);
-    noFill();
+    stroke(255, 200); strokeWeight(1); noFill();
     rect(destX, destY, tileW, tileH);
-
-    // highlight selected
     if (selected === i) {
-      stroke(231, 76, 60);
-      strokeWeight(3);
-      noFill();
+      stroke(231, 76, 60); strokeWeight(3); noFill();
       rect(destX + 2, destY + 2, tileW - 4, tileH - 4);
       strokeWeight(1);
     }
   }
 
-  // solved overlay
   if (solved) {
     fill(39, 174, 96, 200);
     noStroke();
     rect(0, 0, width, height);
-    fill(255);
-    textAlign(CENTER, CENTER);
-    textSize(32);
+    fill(255); textAlign(CENTER, CENTER); textSize(32);
     text('LEVEL SELESAI!', width / 2, height / 2);
   }
 }
 
-// --- mouse interaction ---
+// Mouse interaction unified
 function mousePressed() {
   if (isLoading || !img || solved) return;
   if (mouseX < 0 || mouseX > width || mouseY < 0 || mouseY > height) return;
-
   const c = Math.floor(mouseX / tileW);
   const r = Math.floor(mouseY / tileH);
   if (c < 0 || c >= cols || r < 0 || r >= rows) return;
   const idx = r * cols + c;
 
-  // Prefer puzzle.js handler if exists; fallback to local
-  if (typeof handleTileClick === 'function') {
-    handleTileClick(idx);
+  if (selected === -1) {
+    selected = idx;
+  } else if (selected === idx) {
+    selected = -1;
   } else {
-    handleTileClickLocal(idx);
+    // swap using unified swap
+    swapUnified(selected, idx);
+    selected = -1;
   }
 }
 
-// --- load level (main) ---
-function loadLevel(idx) {
-  isLoading = true;
-  solved = false;
-  selected = -1;
-  tiles = [];
-
-  if (idx >= levels.length) {
-    alert('Selamat! Semua level selesai.');
-    const nextBtn = document.getElementById('nextLevelBtn');
-    if (nextBtn) nextBtn.style.display = 'none';
-    isLoading = false;
-    return;
-  }
-
-  currentLevelIdx = idx;
-  const config = levels[currentLevelIdx];
-
-  // determine URL the canvas will load (proxy remote to avoid CORS)
-  let canvasUrl = config.imageUrl || '';
-  if (/^https?:\/\//i.test(canvasUrl)) {
-    canvasUrl = '/api/image-proxy?url=' + encodeURIComponent(config.imageUrl);
-  } else {
-    // ensure absolute path for local asset
-    if (!canvasUrl.startsWith('/')) canvasUrl = '/' + canvasUrl;
-  }
-
-  // set the reference image src to the SAME URL we will load for canvas,
-  // so user sees the exact same image (avoids mismatch).
-  const ref = document.getElementById('refImg');
-  if (ref) {
-    ref.src = canvasUrl;
-  }
-
-  // Update UI texts
-  updateUI(config);
-
-  console.log('[level] loading', currentLevelIdx, '->', config.imageUrl, 'canvasUrl=', canvasUrl);
-
-  // use p5.loadImage (makes use of p5 lifecycle)
-  loadImage(canvasUrl,
-    (imgLoaded) => {
-      console.log('[image] loaded', canvasUrl, 'original w/h:', imgLoaded.width, imgLoaded.height);
-      // resize to canonical canvas size to keep tile math easy and deterministic
-      try { imgLoaded.resize(CANVAS_SIZE, CANVAS_SIZE); } catch (e) {/* ignore */ }
-      img = imgLoaded;
-      // expose global alias expected by puzzle.js (if it references `img`)
-      window.img = img;
-      // set cols/rows from config
-      cols = config.cols || 3;
-      rows = config.rows || 3;
-      // compute tile size for drawing
-      tileW = Math.floor(width / cols);
-      tileH = Math.floor(height / rows);
-
-      // initialize tiles via puzzle.js if available, else local
-      if (typeof initTiles === 'function') {
-        // many versions of initTiles expect width/height or totalWidth/totalHeight
-        try { initTiles(width, height); } catch (e) { initTiles(); }
-      } else {
-        initTilesLocal(width, height);
-      }
-
-      isLoading = false;
-      console.log('[level] ready: cols=' + cols + ' rows=' + rows + ' tiles=' + tiles.length);
-    },
-    (err) => {
-      console.error('[image] failed to load', canvasUrl, err);
-      // fallback: create placeholder image so UI still shows something
-      img = createGraphics(CANVAS_SIZE, CANVAS_SIZE);
-      img.background(200);
-      img.fill(80);
-      img.textAlign(CENTER, CENTER);
-      img.textSize(14);
-      img.text('Gagal memuat gambar', CANVAS_SIZE / 2, CANVAS_SIZE / 2);
-      window.img = img;
-      // still init tiles from placeholder
-      if (typeof initTiles === 'function') {
-        try { initTiles(width, height); } catch (e) { initTiles(); }
-      } else {
-        initTilesLocal(width, height);
-      }
-      isLoading = false;
+/* -------------------------
+   Model detection + helpers
+   ------------------------- */
+function isDisplayModel() {
+  // display-model: tiles.length == cols*rows and tiles[i].currentIndex === i for most i
+  if (!tiles || tiles.length === 0) return false;
+  if (tiles.length !== cols * rows) return false;
+  // if all tiles[i].currentIndex === i (or most), treat as display model
+  let allMatch = true;
+  for (let i = 0; i < tiles.length; i++) {
+    if (typeof tiles[i].currentIndex !== 'number' || tiles[i].currentIndex !== i) {
+      allMatch = false;
+      break;
     }
-  );
+  }
+  return allMatch;
 }
 
-// --- update UI helper ---
-function updateUI(config) {
-  const levelTitle = document.getElementById('levelTitle');
-  if (levelTitle) levelTitle.textContent = 'Level ' + (config.level || (currentLevelIdx + 1));
-  const puzzleName = document.getElementById('puzzleName');
-  if (puzzleName) puzzleName.textContent = config.name || '';
-  const puzzleDesc = document.getElementById('puzzleDesc');
-  if (puzzleDesc) puzzleDesc.textContent = config.desc || '';
-  const gridSize = document.getElementById('gridSize');
-  if (gridSize) gridSize.textContent = `${cols} x ${rows}`;
-  const diffBadge = document.getElementById('diffBadge');
-  if (diffBadge) diffBadge.textContent = config.diff || '';
-  // hide next button until solved
-  const nextBtn = document.getElementById('nextLevelBtn');
-  if (nextBtn) nextBtn.style.display = 'none';
+// get tile object to DRAW at display position pos (0..n-1)
+function getTileForDisplay(pos) {
+  if (!tiles || tiles.length === 0) return null;
+  if (isDisplayModel()) {
+    return tiles[pos];
+  } else {
+    // mapping model: find tile whose currentIndex == pos
+    return tiles.find(t => t.currentIndex === pos);
+  }
 }
 
-// -------------------- Fallback local implementations --------------------
+/* -------------------------
+   Unified swap / shuffle / check
+   ------------------------- */
+function swapUnified(posA, posB) {
+  if (!tiles || tiles.length === 0) return;
+  if (posA === posB) return;
 
-// If your puzzle.js provides initTiles/shuffleTiles/handleTileClick, those will be used.
-// These are safe fallbacks if puzzle.js missing or different.
+  if (isDisplayModel()) {
+    // swap positions in array
+    const tmp = tiles[posA];
+    tiles[posA] = tiles[posB];
+    tiles[posB] = tmp;
+    // maintain currentIndex fields
+    tiles[posA].currentIndex = posA;
+    tiles[posB].currentIndex = posB;
+  } else {
+    // mapping model: change currentIndex values
+    const a = tiles.find(t => t.currentIndex === posA);
+    const b = tiles.find(t => t.currentIndex === posB);
+    if (!a || !b) return;
+    const tmp = a.currentIndex;
+    a.currentIndex = b.currentIndex;
+    b.currentIndex = tmp;
+  }
 
+  // check solved
+  if (checkSolvedUnified()) {
+    solved = true;
+    const nextBtn = document.getElementById('nextLevelBtn');
+    if (nextBtn) nextBtn.style.display = 'block';
+    console.log('[puzzle] solved (unified)');
+  }
+}
+
+function shuffleTilesUnified() {
+  if (!tiles || tiles.length === 0) return;
+  const n = cols * rows;
+  // create shuffled order array of positions
+  const order = [];
+  for (let i = 0; i < n; i++) order.push(i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+
+  if (isDisplayModel()) {
+    // build new display array: at pos p put tile whose correctIndex == order[p]
+    const newTiles = new Array(n);
+    for (let p = 0; p < n; p++) {
+      const correctIdx = order[p];
+      // find original tile by correctIndex (in current tiles array)
+      const tileObj = tiles.find(t => t.correctIndex === correctIdx);
+      if (!tileObj) {
+        console.warn('shuffleUnified: missing tile for correctIndex', correctIdx);
+        continue;
+      }
+      const clone = Object.assign({}, tileObj);
+      clone.currentIndex = p;
+      newTiles[p] = clone;
+    }
+    tiles = newTiles;
+  } else {
+    // mapping model: set each tile.currentIndex to its new position
+    // for position p -> tile whose correctIndex == order[p] should be placed at p
+    for (let p = 0; p < n; p++) {
+      const correctIdx = order[p];
+      const tileObj = tiles.find(t => t.correctIndex === correctIdx);
+      if (!tileObj) {
+        console.warn('shuffleUnified(mapping): missing tile for correctIndex', correctIdx);
+        continue;
+      }
+      tileObj.currentIndex = p;
+    }
+  }
+
+  selected = -1;
+  solved = checkSolvedUnified();
+  console.log('[puzzle] shuffled unified; solved=', solved);
+}
+
+function checkSolvedUnified() {
+  const n = cols * rows;
+  for (let pos = 0; pos < n; pos++) {
+    const t = getTileForDisplay(pos);
+    if (!t) return false;
+    if (t.correctIndex !== pos) return false;
+  }
+  return true;
+}
+
+/* -------------------------
+   Fallback initTilesLocal (create tiles array in mapping or display model)
+   We will create tiles in mapping model (each tile has correctIndex + currentIndex).
+   ------------------------- */
 function initTilesLocal(totalWidth, totalHeight) {
   tiles = [];
   const imgW = (img && img.width) ? img.width : totalWidth;
@@ -286,83 +231,164 @@ function initTilesLocal(totalWidth, totalHeight) {
     }
   }
 
-  // set drawing tile size
   tileW = Math.floor(totalWidth / cols);
   tileH = Math.floor(totalHeight / rows);
 
-  shuffleTilesLocal();
+  // shuffle into mapping model
+  shuffleTilesUnified();
 }
 
-function shuffleTilesLocal() {
-  const order = tiles.map(t => t.correctIndex);
-  for (let i = order.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [order[i], order[j]] = [order[j], order[i]];
-  }
-  const newTiles = [];
-  for (let pos = 0; pos < order.length; pos++) {
-    const correctIdxAtPos = order[pos];
-    const tileObj = tiles.find(tt => tt.correctIndex === correctIdxAtPos);
-    const clone = Object.assign({}, tileObj);
-    clone.currentIndex = pos;
-    newTiles[pos] = clone;
-  }
-  tiles = newTiles;
+/* -------------------------
+   Level/image loading + UI + helpers (same as previous robust file)
+   ------------------------- */
+
+function fetchLevelsAndStart() {
+  fetch('/api/levels')
+    .then(r => {
+      if (!r.ok) throw new Error('status ' + r.status);
+      return r.json();
+    })
+    .then(data => {
+      console.log('[levels] fetched', data);
+      levels = data && data.length ? data : [{ level: 1, cols: 3, rows: 3, imageUrl: '/assets/ai-generated-8085814.jpg', name: 'Fallback' }];
+      currentLevelIdx = 0;
+      loadLevel(currentLevelIdx);
+    })
+    .catch(err => {
+      console.error('[levels] fetch failed', err);
+      levels = [{ level: 1, cols: 3, rows: 3, imageUrl: '/assets/ai-generated-8085814.jpg', name: 'Fallback' }];
+      currentLevelIdx = 0;
+      loadLevel(currentLevelIdx);
+    });
+}
+
+function loadLevel(idx) {
+  isLoading = true;
+  solved = false;
   selected = -1;
-  solved = checkSolvedLocal();
-  console.log('[puzzle] shuffled local; tiles:', tiles.length);
-}
+  tiles = [];
 
-function checkSolvedLocal() {
-  for (let i = 0; i < tiles.length; i++) {
-    if (tiles[i].currentIndex !== tiles[i].correctIndex) return false;
+  if (idx >= levels.length) {
+    alert('Selamat semua level selesai');
+    isLoading = false;
+    return;
   }
-  return true;
+
+  currentLevelIdx = idx;
+  const config = levels[currentLevelIdx];
+  cols = config.cols || 3;
+  rows = config.rows || 3;
+  let canvasUrl = config.imageUrl || '';
+  if (/^https?:\/\//i.test(canvasUrl)) canvasUrl = '/api/image-proxy?url=' + encodeURIComponent(config.imageUrl);
+  else if (!canvasUrl.startsWith('/')) canvasUrl = '/' + canvasUrl;
+
+  const ref = document.getElementById('refImg');
+  if (ref) ref.src = canvasUrl;
+  updateUI(config);
+  console.log('[level] loading', idx, '->', config.imageUrl);
+
+  loadImage(canvasUrl,
+    (imgLoaded) => {
+      try { imgLoaded.resize(CANVAS_SIZE, CANVAS_SIZE); } catch (e) { }
+      img = imgLoaded;
+      window.img = img;
+      tileW = Math.floor(width / cols);
+      tileH = Math.floor(height / rows);
+      if (typeof initTiles === 'function') {
+        try { initTiles(width, height); } catch (e) { initTilesLocal(width, height); }
+      } else {
+        initTilesLocal(width, height);
+      }
+      isLoading = false;
+    },
+    (err) => {
+      console.error('[image] load failed', canvasUrl, err);
+      img = createGraphics(CANVAS_SIZE, CANVAS_SIZE);
+      img.background(200);
+      img.fill(80);
+      img.textAlign(CENTER, CENTER);
+      img.textSize(14);
+      img.text('Gagal memuat gambar', CANVAS_SIZE / 2, CANVAS_SIZE / 2);
+      window.img = img;
+      initTilesLocal(width, height);
+      isLoading = false;
+    }
+  );
 }
 
-function swapTilesLocal(idxA, idxB) {
-  if (idxA < 0 || idxB < 0 || idxA >= tiles.length || idxB >= tiles.length) return;
-  const tmp = tiles[idxA];
-  tiles[idxA] = tiles[idxB];
-  tiles[idxB] = tmp;
-  // update indices
-  tiles[idxA].currentIndex = idxA;
-  tiles[idxB].currentIndex = idxB;
+function updateUI(config) {
+  const levelTitle = document.getElementById('levelTitle');
+  if (levelTitle) levelTitle.textContent = 'Level ' + (config.level || (currentLevelIdx + 1));
+  const puzzleName = document.getElementById('puzzleName');
+  if (puzzleName) puzzleName.textContent = config.name || '';
+  const puzzleDesc = document.getElementById('puzzleDesc');
+  if (puzzleDesc) puzzleDesc.textContent = config.desc || '';
+  const gridSize = document.getElementById('gridSize');
+  if (gridSize) gridSize.textContent = `${cols} x ${rows}`;
+  const diffBadge = document.getElementById('diffBadge');
+  if (diffBadge) diffBadge.textContent = config.diff || '';
+  const nextBtn = document.getElementById('nextLevelBtn');
+  if (nextBtn) nextBtn.style.display = 'none';
+}
 
-  if (checkSolvedLocal()) {
+/* UI wiring (ensure shuffle calls unified function) */
+function attachUIHandlers() {
+  if (attachUIHandlers._attached) return;
+  attachUIHandlers._attached = true;
+
+  function onShuffleClicked() {
+    console.log('[ui] shuffle clicked');
+    if (isLoading || solved) return;
+    shuffleTilesUnified();
+  }
+
+  function onSolveClicked() {
+    console.log('[ui] solve clicked');
+    // simple solve: put tiles in correct order for display
+    if (isDisplayModel()) {
+      // make sure tiles array arranged in display order with correctIndex == position
+      tiles.sort((a, b) => a.correctIndex - b.correctIndex);
+      for (let i = 0; i < tiles.length; i++) tiles[i].currentIndex = i;
+    } else {
+      // mapping model: set currentIndex = correctIndex
+      tiles.forEach(t => t.currentIndex = t.correctIndex);
+    }
     solved = true;
     const nextBtn = document.getElementById('nextLevelBtn');
     if (nextBtn) nextBtn.style.display = 'block';
   }
-}
 
-// local click handler fallback
-function handleTileClickLocal(idx) {
-  if (selected === -1) {
-    selected = idx;
-  } else if (selected === idx) {
-    selected = -1;
-  } else {
-    swapTilesLocal(selected, idx);
-    selected = -1;
+  function onNextClicked() {
+    loadLevel(currentLevelIdx + 1);
   }
+
+  function attachNow() {
+    const shuffleBtn = document.getElementById('shuffleBtn');
+    const solveBtn = document.getElementById('solveBtn');
+    const nextBtn = document.getElementById('nextLevelBtn');
+
+    if (shuffleBtn) {
+      shuffleBtn.replaceWith(shuffleBtn.cloneNode(true));
+      document.getElementById('shuffleBtn').addEventListener('click', onShuffleClicked);
+    }
+    if (solveBtn) {
+      solveBtn.replaceWith(solveBtn.cloneNode(true));
+      document.getElementById('solveBtn').addEventListener('click', onSolveClicked);
+    }
+    if (nextBtn) {
+      nextBtn.replaceWith(nextBtn.cloneNode(true));
+      document.getElementById('nextLevelBtn').addEventListener('click', onNextClicked);
+    }
+    console.log('[ui] handlers attached (unified)');
+  }
+
+  if (document.readyState === 'complete' || document.readyState === 'interactive') attachNow();
+  else document.addEventListener('DOMContentLoaded', attachNow);
 }
 
-// -------------------- Expose / bridge to other modules --------------------
-// If puzzle.js defines its own functions (initTiles, shuffleTiles, handleTileClick),
-// keep them available; otherwise expose our fallback names so UI can call them.
+/* Expose for other modules or console debugging */
+window.shuffleTiles = shuffleTilesUnified;
+window.swapTiles = swapUnified;
+window.checkSolvedUnified = checkSolvedUnified;
 window.loadLevel = loadLevel;
-window.applyLevelConfig = (cfg) => { loadLevelIndexFromConfig(cfg); }; // optional bridge
 window.loadNextLevel = () => loadLevel(currentLevelIdx + 1);
-
-// helper: accept a direct config object and apply (convenience)
-function loadLevelIndexFromConfig(cfg) {
-  // find matching index in levels
-  const idx = levels.findIndex(l => l.level === cfg.level);
-  if (idx >= 0) loadLevel(idx);
-  else {
-    // temporarily treat cfg as single-level config
-    levels[currentLevelIdx] = cfg;
-    loadLevel(currentLevelIdx);
-  }
-}
