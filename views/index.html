@@ -40,21 +40,13 @@
     </div>
   </div>
 
-  <audio id="audio-bgm" loop>
-    <source src="assets/mixkit-clock-countdown-bleeps-916.wav" type="audio/wav">
-  </audio>
+  <!-- Audio assets (taruh di body) -->
+  <audio id="audio-bgm" src="/assets/mixkit-game-level-music-689.wav" loop preload="auto"></audio>
+  <audio id="audio-win" src="/assets/mixkit-game-level-completed-2059.wav" preload="auto"></audio>
+  <audio id="audio-fail" src="/assets/mixkit-wrong-answer-fail-notification-946.wav" preload="auto"></audio>
+  <audio id="audio-finish" src="/assets/mixkit-completion-of-a-level-xxxxx.wav" preload="auto"></audio>
+  <audio id="audio-warning" src="/assets/mixkit-clock-countdown-bleep.wav" preload="auto"></audio>
 
-  <audio id="audio-win">
-      <source src="assets/audio/win.mp3" type="audio/wav">
-  </audio>
-
-  <audio id="audio-fail">
-      <source src="assets/mixkit-wrong-answer-fail-notification-946.wav" type="audio/wav">
-  </audio>
-
-  <audio id="audio-finish">
-      <source src="assets/audio/finish.mp3" type="audio/wav">
-  </audio>
 
   <!-- client code (served from /controllers) -->
   <script src="/controllers/puzzle.js"></script>

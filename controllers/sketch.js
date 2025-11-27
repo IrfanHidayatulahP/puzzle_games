@@ -3,6 +3,7 @@
  * - Detects tile storage model (mapping vs display-array)
  * - shuffleTiles / swap / checkSolved work in either model
  * - UI handlers call shuffleTiles() which is unified
+ * - Added BGM autoplay attempt with user-interaction fallback
  */
 
 const CANVAS_SIZE = 600;
@@ -18,7 +19,7 @@ let tileW = 0;
 let tileH = 0;
 
 let timerInterval = null;
-let timeLeft = 0;        
+let timeLeft = 0;
 let isGameOver = false;
 
 let levels = [];
@@ -93,10 +94,21 @@ function mousePressed() {
 
 
 function startTimer(seconds) {
-  stopTimer(); 
+  stopTimer();
   timeLeft = seconds;
   isGameOver = false;
   updateTimerDisplay();
+
+  // ---------- AUTOPLAY BGM: play segera ketika timer mulai ----------
+  // Memanggil SoundManager.playBGM() di sini memastikan musik mulai
+  // ketika waktu benar-benar berjalan (atau mencoba memulai; jika browser
+  // memblokir autoplay, SoundManager sudah punya fallback listener).
+  try {
+    SoundManager.playBGM();
+  } catch (e) {
+    console.warn('[audio] playBGM error on timer start:', e);
+  }
+  // -----------------------------------------------------------------
 
   timerInterval = setInterval(() => {
     timeLeft--;
@@ -122,7 +134,7 @@ function updateTimerDisplay() {
   const m = Math.floor(timeLeft / 60);
   const s = timeLeft % 60;
   el.textContent = `${m}:${s < 10 ? '0' : ''}${s}`;
-  
+
   el.style.color = timeLeft <= 10 ? 'red' : '#d35400';
 }
 
@@ -336,7 +348,7 @@ function loadLevel(idx) {
   rows = config.rows || 3;
 
   const levelNum = config.level || (currentLevelIdx + 1);
-  
+
   let duration = 60;
 
   if (levelNum >= 8) {
@@ -385,11 +397,12 @@ function loadLevel(idx) {
       }
 
       isLoading = false;
-      
+
       if (typeof startTimer === 'function') {
-          startTimer(duration);
+        startTimer(duration);
       }
 
+      // TRY AUTOPLAY BGM WHEN LEVEL STARTS
       SoundManager.playBGM();
 
       console.log('[image] loaded & ready');
@@ -403,7 +416,7 @@ function loadLevel(idx) {
       img.textSize(14);
       img.text('Gagal memuat gambar', CANVAS_SIZE / 2, CANVAS_SIZE / 2);
       window.img = img;
-      
+
       initTilesLocal(width, height);
       isLoading = false;
     }
@@ -436,12 +449,12 @@ function attachUIHandlers() {
     shuffleTilesUnified();
     const muteBtn = document.getElementById('muteBtn');
     if (muteBtn) {
-        const newMute = muteBtn.cloneNode(true);
-        muteBtn.replaceWith(newMute);
-        
-        document.getElementById('muteBtn').addEventListener('click', function() {
-            this.textContent = SoundManager.toggleMute();
-        });
+      const newMute = muteBtn.cloneNode(true);
+      muteBtn.replaceWith(newMute);
+
+      document.getElementById('muteBtn').addEventListener('click', function () {
+        this.textContent = SoundManager.toggleMute();
+      });
     }
   }
 
@@ -491,63 +504,98 @@ function attachUIHandlers() {
 }
 
 const SoundManager = {
-    isMuted: false,
-    _play: function(id) {
-        if (this.isMuted) return;
-        const el = document.getElementById(id);
-        if (el) {
-            el.currentTime = 0; 
-            el.play().catch(e => console.log("Audio blocked (autplay policy):", e));
-        }
-    },
+  isMuted: false,
+  _autoplayListenerAttached: false,
 
-    _stop: function(id) {
-        const el = document.getElementById(id);
-        if (el) {
-            el.pause();
-            el.currentTime = 0;
-        }
-    },
-
-    playBGM: function() {
-        if (this.isMuted) return;
-        const el = document.getElementById('audio-bgm');
-        if (el && el.paused) {
-            el.volume = 0.5;
-            el.play().catch(e => console.log("BGM blocked:", e));
-        }
-    },
-
-    stopBGM: function() {
-        this._stop('audio-bgm');
-    },
-    playWin: function() {
-        this.stopBGM(); 
-        this._play('audio-win');
-    },
-    playFail: function() {
-        this.stopBGM();
-        this._play('audio-fail');
-    },
-    playFinish: function() {
-        this.stopBGM();
-        this._play('audio-finish');
-    },
-    
-    toggleMute: function() {
-        this.isMuted = !this.isMuted;
-        if (this.isMuted) {
-            this.stopBGM(); 
-            this._stop('audio-win');
-            this._stop('audio-fail');
-            this._stop('audio-finish');
-            return "🔇 Suara: OFF";
-        } else {
-            // Jika di-unmute saat game jalan, nyalakan BGM
-            if (!solved && !isGameOver) this.playBGM();
-            return "🔊 Suara: ON";
-        }
+  _play: function (id) {
+    if (this.isMuted) return;
+    const el = document.getElementById(id);
+    if (el) {
+      el.currentTime = 0;
+      el.play().catch(e => console.log("Audio blocked (autplay policy):", e));
     }
+  },
+
+  _stop: function (id) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.pause();
+      el.currentTime = 0;
+    }
+  },
+
+  // Try to play immediately; if blocked register a one-time user-interaction fallback
+  playBGM: function () {
+    if (this.isMuted) return;
+    const el = document.getElementById('audio-bgm');
+    if (!el) return;
+
+    el.loop = true;
+    el.volume = 0.5;
+
+    const tryPlay = () => {
+      const p = el.play();
+      if (p && typeof p.then === 'function') {
+        p.then(() => {
+          // started successfully
+          console.log('[audio] BGM started via play()');
+        }).catch(err => {
+          console.warn('[audio] autoplay blocked:', err && err.message);
+          // fallback: attach one-time interaction handlers to try resume/play
+          if (!this._autoplayListenerAttached) {
+            this._autoplayListenerAttached = true;
+            const onInteract = () => {
+              try {
+                // try to resume audio context if available (p5)
+                if (typeof getAudioContext === 'function') {
+                  try { const ctx = getAudioContext(); if (ctx && ctx.state === 'suspended') ctx.resume(); } catch (e) { }
+                }
+              } catch (e) { }
+              el.play().catch(e2 => console.warn('[audio] play after user interaction failed:', e2 && e2.message));
+              window.removeEventListener('pointerdown', onInteract);
+              window.removeEventListener('keydown', onInteract);
+            };
+            window.addEventListener('pointerdown', onInteract, { once: true });
+            window.addEventListener('keydown', onInteract, { once: true });
+            console.log('[audio] waiting for user interaction to resume BGM');
+          }
+        });
+      }
+    };
+
+    tryPlay();
+  },
+
+  stopBGM: function () {
+    this._stop('audio-bgm');
+  },
+  playWin: function () {
+    this.stopBGM();
+    this._play('audio-win');
+  },
+  playFail: function () {
+    this.stopBGM();
+    this._play('audio-fail');
+  },
+  playFinish: function () {
+    this.stopBGM();
+    this._play('audio-finish');
+  },
+
+  toggleMute: function () {
+    this.isMuted = !this.isMuted;
+    if (this.isMuted) {
+      this.stopBGM();
+      this._stop('audio-win');
+      this._stop('audio-fail');
+      this._stop('audio-finish');
+      return "🔇 Suara: OFF";
+    } else {
+      // Jika di-unmute saat game jalan, nyalakan BGM
+      if (!solved && !isGameOver) this.playBGM();
+      return "🔊 Suara: ON";
+    }
+  }
 };
 
 /* Expose for other modules or console debugging */
